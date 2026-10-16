@@ -1,0 +1,9 @@
+services:
+  guacamole-mcp:
+    build: .
+    image: guacamole-mcp-server:latest
+    restart: unless-stopped
+    env_file: .env
+    # Exposed only on the host's loopback: publish through a reverse proxy with HTTPS.
+    ports:
+      - "127.0.0.1:8000:8000"

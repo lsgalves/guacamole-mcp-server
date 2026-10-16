@@ -1,0 +1,9 @@
+.venv
+.git
+.env
+.mcp.json
+**/__pycache__
+*.py[oc]
+build/
+dist/
+*.egg-info

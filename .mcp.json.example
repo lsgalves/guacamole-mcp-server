@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "guacamole": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/lsgalves/guacamole-mcp-server@v0.1.0",
+        "guacamole-mcp-server"
+      ],
+      "env": {
+        "GUACAMOLE_URL": "https://guacamole.exemplo.com.br/guacamole",
+        "GUACAMOLE_USERNAME": "${GUACAMOLE_USERNAME}",
+        "GUACAMOLE_PASSWORD": "${GUACAMOLE_PASSWORD}",
+        "GUACAMOLE_VERIFY_SSL": "true"
+      }
+    }
+  }
+}

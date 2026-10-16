@@ -1,0 +1,21 @@
+[project]
+name = "guacamole-mcp-server"
+version = "0.1.0"
+description = "MCP server to run commands on SSH connections through Apache Guacamole"
+readme = "README.md"
+authors = [
+    { name = "Leonardo Galves", email = "leonardosgalves@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "mcp>=1.10,<2",
+    "websockets>=13",
+]
+
+[project.scripts]
+guacamole-mcp-server = "guacamole_mcp_server.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
