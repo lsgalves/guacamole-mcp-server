@@ -2,11 +2,14 @@
 
 Servidor MCP que permite ao Claude Code executar comandos em servidores acessíveis pelo
 **Apache Guacamole**: Linux via conexões **SSH** e Windows via conexões **RDP com WinRM**
-(extensão **guacamole-winrm**). Basta pedir:
+(extensão **guacamole-winrm**). Também consulta e administra o próprio Guacamole (conexões,
+grupos, usuários e permissões), no limite das permissões do usuário configurado. Basta pedir:
 
 > Analise o servidor `web-server-01` para ver por que o nginx está retornando 502
 
-e o Claude encontra a conexão no Guacamole, executa os comandos através dele e investiga.
+e o Claude encontra a conexão no Guacamole, executa os comandos através dele e investiga. Ou:
+
+> Dê acesso de leitura ao usuário `joao` em todas as conexões do grupo `Clientes/Linux/24410 - ACME`
 
 ## Como funciona — SSH (Linux)
 
@@ -53,11 +56,54 @@ da extensão `guacamole-winrm`:
 | Ferramenta | Descrição |
 |---|---|
 | `list_connections(search?, include_all?)` | Lista conexões SSH e RDP com WinRM (nome, id, grupo, data source, `shell`) |
-| `run_command(connection, command, timeout_seconds?)` | Executa um comando e retorna saída + exit code. `connection` aceita nome exato, parte única do nome, `grupo/nome` ou identificador |
+| `run_command(connection, command, timeout_seconds?, shell?)` | Executa um comando e retorna saída + exit code. `connection` aceita nome exato, parte única do nome, `grupo/nome` ou identificador. `shell` (`posix`/`powershell`) declara a linguagem do comando: se não bater com a conexão, nada é executado — é o que permite a um hook de segurança classificar o comando com a gramática certa |
 | `list_sessions()` | Sessões abertas pelo MCP |
 | `close_session(connection)` | Fecha a sessão de uma conexão |
 
 Em timeout, no SSH o comando recebe Ctrl+C e a saída parcial é retornada; no WinRM, veja acima.
+
+### Administração do Guacamole
+
+As ferramentas abaixo usam a API REST (`/api/session/data/{dataSource}/...`) **como o usuário
+configurado**. Quem decide o que é permitido é o próprio Guacamole: permissões de sistema
+(`ADMINISTER`, `CREATE_USER`, `CREATE_CONNECTION`...) e `UPDATE`/`DELETE`/`ADMINISTER` em cada
+objeto. O que o usuário não pode fazer volta como erro HTTP 403 com o nome do usuário. O mesmo
+servidor atende um usuário só de leitura e um administrador; `get_current_user` mostra as
+permissões.
+
+| Ferramenta | Descrição |
+|---|---|
+| `get_current_user()` | Usuário do MCP, grupos, permissões de sistema e em quantos objetos tem cada permissão |
+| `get_connection(connection, history_limit?)` | Protocolo, grupo, parâmetros (hostname, porta, usuário...), atributos e últimas sessões. Parâmetros exigem `UPDATE` na conexão |
+| `list_connection_groups(search?)` | Grupos de conexão com caminho, id, tipo e quantidade de filhos |
+| `list_active_connections(search?)` | Sessões abertas agora: conexão, usuário, IP de origem, início |
+| `list_users(search?)` / `get_user(username, history_limit?, include_effective?)` | Usuários; detalhe com grupos, permissões (ids viram nomes), permissões efetivas e últimos logins |
+| `list_user_groups(search?)` / `get_user_group(group)` | Grupos de usuários; detalhe com membros, grupos pais e permissões |
+| `create_connection` / `update_connection` / `delete_connection` | Cria, renomeia, move (`group`) ou altera parâmetros e atributos de uma conexão |
+| `create_connection_group` / `update_connection_group` / `delete_connection_group` | Pastas de conexões. Grupo com conteúdo não é apagado (o Guacamole apagaria tudo dentro) |
+| `create_user` / `update_user` / `delete_user` | Usuários: senha, ativar/desativar (`disabled`), atributos (nome, e-mail, validade...) |
+| `create_user_group` / `update_user_group` / `delete_user_group` | Grupos de usuários |
+| `update_group_members(group, add_users?, remove_users?, add_groups?, remove_groups?)` | Membros de um grupo; `not_applied` lista o que o Guacamole ignorou (nome inexistente) |
+| `update_permissions(target_type, target?, grant?, revoke?, user? \| user_group?)` | Concede ou revoga permissões em conexão, grupo de conexão, usuário, grupo de usuários ou de sistema |
+
+- **Alterações mesclam.** O `PUT` do Guacamole substitui o objeto inteiro (parâmetros, atributos,
+  `disabled`); o MCP lê o objeto atual e muda só os campos informados. `null` limpa um parâmetro
+  ou atributo; booleanos viram `"true"`/vazio, como o Guacamole grava.
+- **Nome exato nas alterações.** Leitura aceita parte única do nome; alteração exige nome exato,
+  `grupo/nome` ou identificador (conexão) e caminho, nome ou identificador (grupo de conexão).
+- **Segredos mascarados.** Senhas, chaves privadas, passphrases, segredo de TOTP e configuração do
+  Keeper aparecem como `***`. Um valor `***` numa alteração é recusado (é a máscara, não o valor).
+- **Sessões.** Alterar ou apagar uma conexão fecha a sessão aberta nela pelo MCP; o próximo
+  `run_command` já usa a configuração nova.
+- **Proteções.** O MCP não apaga nem desativa o próprio usuário e não move um grupo para dentro
+  dele mesmo.
+- **Data source.** Usuários, grupos e conexões novas ficam no primeiro de
+  `GUACAMOLE_DATA_SOURCES` ou, sem ele, no data source que autenticou o usuário (`mysql` numa
+  instalação com banco). Com LDAP + MySQL, defina `GUACAMOLE_DATA_SOURCES=mysql`.
+- **Sem padrões automáticos.** `create_connection` não acrescenta parâmetros (gravação de sessão,
+  drive, typescript): passe os que o padrão da equipe exige.
+- Compatível com Guacamole 1.6 (`disabled` como propriedade) e anteriores (`disabled` como
+  atributo).
 
 ## Instalação
 
@@ -71,15 +117,15 @@ claude mcp add guacamole \
   -e GUACAMOLE_URL=https://guacamole.exemplo.com.br/guacamole \
   -e GUACAMOLE_USERNAME=seu.usuario \
   -e GUACAMOLE_PASSWORD='sua-senha' \
-  -- uvx --from git+https://github.com/lsgalves/guacamole-mcp-server@v0.1.0 guacamole-mcp-server
+  -- uvx --from git+https://github.com/lsgalves/guacamole-mcp-server@v0.2.0 guacamole-mcp-server
 ```
 
 Ou em `.mcp.json` (veja `.mcp.json.example`). Evite versionar a senha: use
 `"GUACAMOLE_PASSWORD": "${GUACAMOLE_PASSWORD}"` e exporte a variável no shell.
 
 - **Repositório privado:** o `uv` usa as credenciais do Git da sua máquina. Com chave SSH, use
-  `git+ssh://git@github.com/lsgalves/guacamole-mcp-server.git@v0.1.0`.
-- **Versões:** o sufixo `@v0.1.0` fixa uma tag. Para atualizar, troque a tag na configuração.
+  `git+ssh://git@github.com/lsgalves/guacamole-mcp-server.git@v0.2.0`.
+- **Versões:** o sufixo `@v0.2.0` fixa uma tag. Para atualizar, troque a tag na configuração.
   Sem tag, o `uvx` usa a branch padrão e mantém em cache a versão baixada; rode
   `uvx --refresh --from git+... guacamole-mcp-server` para buscar a mais recente.
 
@@ -156,3 +202,14 @@ claude mcp add --transport http guacamole https://mcp-guacamole.exemplo.com.br/m
 O Claude Code pede confirmação antes de cada `run_command`, a menos que você libere a ferramenta
 (`mcp__guacamole__run_command`) nas permissões. Use um usuário do Guacamole com acesso apenas às
 conexões necessárias e, idealmente, contas SSH com privilégios mínimos.
+
+As ferramentas de administração têm o alcance das permissões do usuário configurado: com
+`ADMINISTER`, ele cria administradores, muda o destino de qualquer conexão e apaga usuários. Dê
+permissões de administração só a quem vai administrar pelo MCP e não libere as ferramentas de
+escrita (`create_*`, `update_*`, `delete_*`) sem confirmação.
+
+## Testes
+
+```sh
+uv run pytest
+```

@@ -1,7 +1,7 @@
 [project]
 name = "guacamole-mcp-server"
 version = "0.1.0"
-description = "MCP server to run commands on SSH connections through Apache Guacamole"
+description = "MCP server to run commands on servers and administer Apache Guacamole"
 readme = "README.md"
 authors = [
     { name = "Leonardo Galves", email = "leonardosgalves@gmail.com" }
@@ -15,6 +15,15 @@ dependencies = [
 
 [project.scripts]
 guacamole-mcp-server = "guacamole_mcp_server.server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
 
 [build-system]
 requires = ["hatchling"]
